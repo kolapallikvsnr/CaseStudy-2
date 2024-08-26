@@ -1,0 +1,47 @@
+version: 0.2
+
+env:
+  variables:
+    CLUSTER_NAME: "eks-cluster-test"
+    REGION: "eu-west-1"
+    FRONTEND_SERVICE: "front-end"
+phases:
+  install:
+    commands:
+      - echo "Installing kubectl and configuring kubeconfig"
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl
+      - mkdir -p $HOME/bin && mv ./kubectl $HOME/bin/kubectl && export PATH=$HOME/bin:$PATH
+      - echo "Verifying kubectl installation"
+      - kubectl version --client
+      - echo "Configuring AWS CLI and kubectl to interact with the EKS cluster"
+      - aws eks update-kubeconfig --name $CLUSTER_NAME --region $REGION
+  pre_build:
+    commands:
+      - echo "Pre-deployment checks"
+      - kubectl get nodes
+      - echo "Environment setup for production deployment"
+  build:
+    commands:
+      - echo "Deploying Sock Shop microservices application"
+      - kubectl apply -f kubectl-deploy.yaml
+      - echo "Waiting for the application to stabilize"
+      - kubectl rollout status deployment/front-end -n sock-shop
+      - echo "Checking the status of all services"
+      - kubectl get all -n sock-shop
+  post_build:
+    commands:
+      - echo "Deployment completed successfully"
+      - echo "Printing front-end service URL..."
+      - NODE_PORT=$(kubectl get svc $FRONTEND_SERVICE -o jsonpath='{.spec.ports[0].nodePort}')
+      - NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+      - echo "Front-end URL: http://$NODE_IP:$NODE_PORT"
+
+artifacts:
+  files:
+    - kubectl-deploy.yaml
+  discard-paths: yes
+
+cache:
+  paths:
+    - $HOME/.kube/cache
